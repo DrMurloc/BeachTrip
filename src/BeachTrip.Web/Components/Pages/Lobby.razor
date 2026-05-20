@@ -194,7 +194,8 @@
                     {
                         var iAmIn = myId is not null && c.Members.Contains(myId);
                         var iAmDriver = myId is not null && c.DriverId == myId;
-                        var canJoin = !anonymous && !iAmIn && c.Members.Count < c.CarCapacity;
+                        var iDriveAnyCarpool = myId is not null && _myCarpool is not null && _myCarpool.DriverId == myId;
+                        var canJoin = !anonymous && !iAmIn && c.Members.Count < c.CarCapacity && !iDriveAnyCarpool;
                         <MudCard Elevation="0" Outlined="true" Style="min-width: 240px;">
                             <MudCardContent Class="pa-2">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
@@ -560,6 +561,10 @@
     {
         if (_identity is null) return;
         var myId = _identity.AttendeeId.ToString();
+
+        // Drivers are committed to their own car — they have to Disband before riding with someone else.
+        if (_myCarpool is not null && _myCarpool.DriverId == myId && _myCarpool.Id != carpoolId)
+            return;
 
         var current = _carpools.FirstOrDefault(c => c.IsActive && c.Members.Contains(myId) && c.Id != carpoolId && c.DriverId != myId);
         if (current is not null)

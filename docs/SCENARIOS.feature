@@ -138,6 +138,13 @@ Feature: Cars and carpools
     And I am a member of Bob's carpool
     And the "Your assignments" pill reads "In Bob's carpool"
 
+  Scenario: A driver cannot join another carpool
+    Given I am the driver of an active carpool
+    And Bob's carpool has free seats
+    When I view Bob's carpool card
+    Then no Join button appears
+    And I must Disband my own carpool first if I want to ride with Bob
+
   Scenario: Driver disbands the carpool
     Given I am the driver of an active carpool
     When I click Disband
