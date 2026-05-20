@@ -1,21 +1,20 @@
 using BeachTrip.Application.Parking;
 using MassTransit;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace BeachTrip.Application;
 
+// Composable bus registration helpers. Transport and saga repository are
+// chosen by the caller — Infrastructure picks ASB + Cosmos; tests pick in-memory.
 public static class ApplicationServiceCollectionExtensions
 {
-    public static IServiceCollection AddBeachTripApplication(this IServiceCollection services)
+    public static IBusRegistrationConfigurator AddBeachTripConsumers(this IBusRegistrationConfigurator bus)
     {
-        services.AddMassTransit(bus =>
-        {
-            bus.AddConsumers(typeof(ApplicationServiceCollectionExtensions).Assembly);
-            bus.AddSagaStateMachine<ParkingAllocationStateMachine, ParkingAllocationState>()
-                .InMemoryRepository();
-            bus.UsingInMemory((ctx, cfg) => cfg.ConfigureEndpoints(ctx));
-        });
+        bus.AddConsumers(typeof(ApplicationServiceCollectionExtensions).Assembly);
+        return bus;
+    }
 
-        return services;
+    public static ISagaRegistrationConfigurator<ParkingAllocationState> AddParkingAllocationSaga(this IBusRegistrationConfigurator bus)
+    {
+        return bus.AddSagaStateMachine<ParkingAllocationStateMachine, ParkingAllocationState>();
     }
 }

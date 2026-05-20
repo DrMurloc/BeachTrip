@@ -1,9 +1,11 @@
+using BeachTrip.Infrastructure;
 using BeachTrip.Web.Components;
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddBeachTripPublisher();
 
 builder.Services.AddMudServices();
 

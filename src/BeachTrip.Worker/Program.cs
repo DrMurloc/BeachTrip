@@ -1,10 +1,9 @@
-using BeachTrip.Worker;
+using BeachTrip.Infrastructure;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 builder.AddServiceDefaults();
-
-builder.Services.AddHostedService<Worker>();
+builder.AddBeachTripInfrastructure();
 
 var host = builder.Build();
 host.Run();
