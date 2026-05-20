@@ -267,6 +267,37 @@
                 }
             </MudPaper>
         </MudItem>
+
+        @* ── Roomless people: at-a-glance roster of who still needs a bed ── *@
+        <MudItem xs="12">
+            @{
+                var roomless = RoomlessAttendees().ToList();
+            }
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.PersonOff" Size="Size.Small" Color="Color.Default" />
+                    <MudText Typo="Typo.h6">Without a room yet</MudText>
+                    <MudSpacer />
+                    <MudText Typo="Typo.caption" Color="Color.Default">@roomless.Count @(roomless.Count == 1 ? "person" : "people")</MudText>
+                </MudStack>
+                @if (!roomless.Any())
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Default">Everyone's got a room.</MudText>
+                }
+                else
+                {
+                    <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+                        @foreach (var a in roomless)
+                        {
+                            <MudStack Spacing="1" AlignItems="AlignItems.Center" Style="min-width: 64px;">
+                                @InitialsAvatar(a.DisplayName, 36)
+                                <MudText Typo="Typo.caption">@a.DisplayName</MudText>
+                            </MudStack>
+                        }
+                    </MudStack>
+                }
+            </MudPaper>
+        </MudItem>
     </MudGrid>
 
 @* ── Reusable render fragments ─────────────────────────────────── *@
@@ -443,6 +474,23 @@
 
     private string NameOf(string attendeeId) =>
         _attendees.FirstOrDefault(a => a.Id == attendeeId)?.DisplayName ?? attendeeId;
+
+    // Dedupes by display name: if any aggregate under that name is in a room,
+    // the name is considered "roomed" — protects against leftover bogus attendees
+    // showing their seeded twin as homeless.
+    private IEnumerable<AttendeeView> RoomlessAttendees()
+    {
+        var roomedNames = _attendees
+            .Where(a => _rooms.Any(r => r.Occupants.Contains(a.Id)))
+            .Select(a => a.DisplayName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return _attendees
+            .Where(a => !roomedNames.Contains(a.DisplayName))
+            .GroupBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderBy(a => a.DisplayName);
+    }
 
     private async void OnViewChanged(ViewUpdated msg)
     {
