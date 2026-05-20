@@ -1,0 +1,27 @@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Error</PageTitle>
+
+<MudPaper Class="pa-6" Elevation="2">
+    <MudText Typo="Typo.h4" Color="Color.Error" GutterBottom="true">Something broke.</MudText>
+    <MudText Typo="Typo.body1" GutterBottom="true">An error occurred while processing your request.</MudText>
+
+    @if (ShowRequestId)
+    {
+        <MudText Typo="Typo.body2">
+            <strong>Request ID:</strong> <code>@RequestId</code>
+        </MudText>
+    }
+</MudPaper>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

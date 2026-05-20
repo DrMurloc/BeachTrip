@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/BeachTrip.AppHost/BeachTrip.AppHost.csproj" />
+    <Project Path="src/BeachTrip.Application/BeachTrip.Application.csproj" />
+    <Project Path="src/BeachTrip.Domain/BeachTrip.Domain.csproj" />
+    <Project Path="src/BeachTrip.Infrastructure/BeachTrip.Infrastructure.csproj" />
+    <Project Path="src/BeachTrip.ServiceDefaults/BeachTrip.ServiceDefaults.csproj" />
+    <Project Path="src/BeachTrip.Web/BeachTrip.Web.csproj" />
+    <Project Path="src/BeachTrip.Worker/BeachTrip.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/BeachTrip.Application.Tests/BeachTrip.Application.Tests.csproj" />
+    <Project Path="tests/BeachTrip.Domain.Tests/BeachTrip.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,90 @@
+# Build outputs
+bin/
+obj/
+artifacts/
+publish/
+out/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+*.dll
+*.exe
+*.pdb
+
+# Restore / packages
+*.nupkg
+*.snupkg
+.packages/
+packages/
+project.lock.json
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.history/
+
+# Rider
+*.DotSettings.user
+
+# JetBrains caches
+*.cache
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local secrets / env
+*.env
+*.env.local
+appsettings.*.local.json
+secrets.json
+.aspire/
+
+# Claude Code — track shared settings, ignore user-local
+.claude/settings.local.json
+
+# Aspire / DCP work dirs (in case Aspire ever drops a file in the repo)
+.dcp/
+dcp-work/
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage*.json
+coverage*.xml
+
+# Logs
+*.log
+logs/
+
+# MS Test
+[Tt]est[Rr]esult*/
+*.VisualState.xml
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+nCrunchTemp_*
+
+# DotCover
+*.dotCover
+
+# Visual Studio cache files
+*.[Cc]ache
+ClientBin/
+
+# Generated source
+*.g.cs
+*.generated.cs
