@@ -183,7 +183,7 @@
                                 <MudSelectItem T="string" Value="@a.Id">@a.DisplayName</MudSelectItem>
                             }
                         </MudSelect>
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="FormCarpool" Disabled="@(!_passengerIds.Any())">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="FormCarpool">
                             Form (@(_passengerIds.Count() + 1)/@_me.CarCapacity)
                         </MudButton>
                     }
@@ -194,7 +194,8 @@
                     {
                         var iAmIn = myId is not null && c.Members.Contains(myId);
                         var iAmDriver = myId is not null && c.DriverId == myId;
-                        var canJoin = !anonymous && !iAmIn && c.Members.Count < c.CarCapacity;
+                        var iDriveAnyCarpool = myId is not null && _myCarpool is not null && _myCarpool.DriverId == myId;
+                        var canJoin = !anonymous && !iAmIn && c.Members.Count < c.CarCapacity && !iDriveAnyCarpool;
                         <MudCard Elevation="0" Outlined="true" Style="min-width: 240px;">
                             <MudCardContent Class="pa-2">
                                 <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
@@ -263,6 +264,37 @@
                             </MudButton>
                         </MudStack>
                     }
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* ── Roomless people: at-a-glance roster of who still needs a bed ── *@
+        <MudItem xs="12">
+            @{
+                var roomless = RoomlessAttendees().ToList();
+            }
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="mb-2">
+                    <MudIcon Icon="@Icons.Material.Filled.PersonOff" Size="Size.Small" Color="Color.Default" />
+                    <MudText Typo="Typo.h6">Without a room yet</MudText>
+                    <MudSpacer />
+                    <MudText Typo="Typo.caption" Color="Color.Default">@roomless.Count @(roomless.Count == 1 ? "person" : "people")</MudText>
+                </MudStack>
+                @if (!roomless.Any())
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Default">Everyone's got a room.</MudText>
+                }
+                else
+                {
+                    <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+                        @foreach (var a in roomless)
+                        {
+                            <MudStack Spacing="1" AlignItems="AlignItems.Center" Style="min-width: 64px;">
+                                @InitialsAvatar(a.DisplayName, 36)
+                                <MudText Typo="Typo.caption">@a.DisplayName</MudText>
+                            </MudStack>
+                        }
+                    </MudStack>
                 }
             </MudPaper>
         </MudItem>
@@ -443,6 +475,23 @@
     private string NameOf(string attendeeId) =>
         _attendees.FirstOrDefault(a => a.Id == attendeeId)?.DisplayName ?? attendeeId;
 
+    // Dedupes by display name: if any aggregate under that name is in a room,
+    // the name is considered "roomed" — protects against leftover bogus attendees
+    // showing their seeded twin as homeless.
+    private IEnumerable<AttendeeView> RoomlessAttendees()
+    {
+        var roomedNames = _attendees
+            .Where(a => _rooms.Any(r => r.Occupants.Contains(a.Id)))
+            .Select(a => a.DisplayName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return _attendees
+            .Where(a => !roomedNames.Contains(a.DisplayName))
+            .GroupBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(g => g.First())
+            .OrderBy(a => a.DisplayName);
+    }
+
     private async void OnViewChanged(ViewUpdated msg)
     {
         await InvokeAsync(async () =>
@@ -561,11 +610,14 @@
         if (_identity is null) return;
         var myId = _identity.AttendeeId.ToString();
 
+        // Drivers are committed to their own car — they have to Disband before riding with someone else.
+        if (_myCarpool is not null && _myCarpool.DriverId == myId && _myCarpool.Id != carpoolId)
+            return;
+
         var current = _carpools.FirstOrDefault(c => c.IsActive && c.Members.Contains(myId) && c.Id != carpoolId && c.DriverId != myId);
         if (current is not null)
         {
             current.Members.Remove(myId);
-            if (current.Members.Count < 2) current.IsActive = false;
             await Bus.Publish(new LeaveCarpool(new CarpoolId(Guid.Parse(current.Id)), new AttendeeId(_identity.AttendeeId)));
         }
 
@@ -587,7 +639,6 @@
         if (carpool is not null)
         {
             carpool.Members.Remove(myId);
-            if (carpool.Members.Count < 2) carpool.IsActive = false;
             _myCarpool = null;
             StateHasChanged();
         }

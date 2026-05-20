@@ -22,10 +22,10 @@ The names we use and what they mean. Pulled from the actual aggregates in `Beach
 
 ## Travel
 
-**Carpool** — a group of 2+ Attendees travelling together in one Car. Aggregate root in [`Carpools/Carpool.cs`](../src/BeachTrip.Domain/Carpools/Carpool.cs). Invariants:
-- `2 ≤ members.Count ≤ driver.Car.Capacity`
+**Carpool** — a group of 1+ Attendees travelling together in one Car. The driver always counts as a member, so a freshly-formed carpool with no passengers is a valid "I'm driving, hop in if you want" container. Aggregate root in [`Carpools/Carpool.cs`](../src/BeachTrip.Domain/Carpools/Carpool.cs). Invariants:
+- `1 ≤ members.Count ≤ driver.Car.Capacity`
 - Driver can't leave (must Disband instead)
-- Removing a Member that drops the count below 2 auto-disbands
+- Passengers can come and go freely; the carpool stays active even when the driver is the only member left
 
 **Driver** (in a Carpool context) — the Attendee whose Car the Carpool is using. Always the first member.
 

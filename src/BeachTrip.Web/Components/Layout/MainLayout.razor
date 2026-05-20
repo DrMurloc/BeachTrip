@@ -1,3 +1,4 @@
+@using BeachTrip.Infrastructure
 @using BeachTrip.Infrastructure.Projections
 @using BeachTrip.Web.Live
 @using BeachTrip.Web.Services
@@ -26,16 +27,29 @@
                      Variant="Variant.Outlined"
                      Color="Color.Inherit"
                      Class="mr-2">
-                @foreach (var a in _attendees.OrderBy(a => a.DisplayName))
-                {
-                    <MudMenuItem OnClick="@(() => SwitchTo(a))">
-                        @a.DisplayName
-                        @if (a.Id == _identity.AttendeeId.ToString())
-                        {
-                            <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="ml-2" />
-                        }
-                    </MudMenuItem>
-                }
+                <div class="pa-2" style="min-width: 260px;">
+                    <MudTextField @bind-Value="_filter"
+                                  Placeholder="Search users..."
+                                  Variant="Variant.Outlined"
+                                  Margin="Margin.Dense"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true"
+                                  DebounceInterval="0" />
+                </div>
+                <MudDivider />
+                <div style="max-height: 320px; overflow-y: auto;">
+                    @foreach (var a in FilteredAttendees())
+                    {
+                        <MudMenuItem @key="a.Id" OnClick="@(() => SwitchTo(a))">
+                            @a.DisplayName
+                            @if (a.Id == _identity.AttendeeId.ToString())
+                            {
+                                <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="ml-2" />
+                            }
+                        </MudMenuItem>
+                    }
+                </div>
                 <MudDivider />
                 <MudMenuItem OnClick="RegisterAnother" Icon="@Icons.Material.Filled.SwitchAccount">
                     Switch User
@@ -69,9 +83,40 @@
 @code {
     private UserIdentity? _identity;
     private IReadOnlyList<AttendeeView> _attendees = Array.Empty<AttendeeView>();
+    private string _filter = "";
 
     private bool IsOnSignInPage =>
         string.IsNullOrEmpty(Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/'));
+
+    // Dedupes by display name (case-insensitive) so any leftover bogus aggregates
+    // collapse to one row. Prefers the seeded KnownIds GUID for the family names
+    // so "DrMurloc" always switches to the canonical aggregate that owns 2F Right.
+    private IEnumerable<AttendeeView> FilteredAttendees() =>
+        _attendees
+            .Where(a => string.IsNullOrWhiteSpace(_filter) ||
+                        a.DisplayName.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(a => a.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .Select(PreferCanonical)
+            .OrderBy(a => a.DisplayName);
+
+    private static AttendeeView PreferCanonical(IGrouping<string, AttendeeView> group)
+    {
+        var seededId = TrySeededId(group.Key);
+        if (seededId is not null)
+        {
+            var canonical = group.FirstOrDefault(a => Guid.Parse(a.Id) == seededId.Value);
+            if (canonical is not null) return canonical;
+        }
+        return group.OrderBy(a => a.Id, StringComparer.Ordinal).First();
+    }
+
+    private static Guid? TrySeededId(string handle) => handle.ToLowerInvariant() switch
+    {
+        "drmurloc" => KnownIds.DrMurloc,
+        "iraiah"   => KnownIds.Iraiah,
+        "murky"    => KnownIds.Murky,
+        _ => null,
+    };
 
     protected override async Task OnInitializedAsync()
     {

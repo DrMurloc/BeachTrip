@@ -102,7 +102,8 @@ Feature: Room assignment
     Then the 3F Twin card has no Join button
 
 Feature: Cars and carpools
-  Driving up = declaring a car. A carpool is 2+ humans in one car.
+  Driving up = declaring a car. A carpool is 1+ humans in one car — the driver
+  forms it solo and passengers join optionally.
 
   Scenario: Declaring a car unlocks carpool formation
     Given I am signed in and have no car declared
@@ -121,6 +122,14 @@ Feature: Cars and carpools
     And Bob is a member
     And the carpool card shows our initials avatars
 
+  Scenario: Form a solo carpool that others can join
+    Given I have a 4-seat car declared
+    And no passengers are selected
+    When I click Form
+    Then a new active carpool is created with just me as driver
+    And the carpool card shows free seats
+    And other attendees see a Join button on my carpool
+
   Scenario: Joining another carpool auto-leaves the current one
     Given I am a passenger in Alice's carpool
     And Bob's carpool has a free seat
@@ -129,6 +138,13 @@ Feature: Cars and carpools
     And I am a member of Bob's carpool
     And the "Your assignments" pill reads "In Bob's carpool"
 
+  Scenario: A driver cannot join another carpool
+    Given I am the driver of an active carpool
+    And Bob's carpool has free seats
+    When I view Bob's carpool card
+    Then no Join button appears
+    And I must Disband my own carpool first if I want to ride with Bob
+
   Scenario: Driver disbands the carpool
     Given I am the driver of an active carpool
     When I click Disband
@@ -136,11 +152,11 @@ Feature: Cars and carpools
     And it disappears from the lobby's carpool cards
     And my carpool status pill clears
 
-  Scenario: Removing a member drops the carpool below 2 humans
+  Scenario: Removing the last passenger leaves the driver alone but active
     Given Alice's carpool has only Alice and Bob
     When Bob clicks Leave
-    Then the carpool auto-disbands
-    And both Alice and Bob have no carpool
+    Then the carpool remains active with Alice as the only member
+    And other attendees can still Join Alice's carpool
 
 Feature: Admin parking assignment (DrMurloc only)
   The host manually assigns parking spots; the saga's auto-allocator is dormant.

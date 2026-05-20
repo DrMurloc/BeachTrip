@@ -25,17 +25,20 @@ public sealed class CarpoolTests
     }
 
     [Fact]
-    public void Form_with_only_driver_throws()
+    public void Form_with_only_driver_succeeds()
     {
-        Assert.Throws<DomainException>(() =>
-            Carpool.Form(CarpoolId.New(), Driver, carCapacity: 4, ParkingPreference.None));
+        var id = CarpoolId.New();
+        var carpool = Carpool.Form(id, Driver, carCapacity: 4, ParkingPreference.None);
+
+        Assert.True(carpool.IsActive);
+        Assert.Equal(Driver, Assert.Single(carpool.Members));
     }
 
     [Fact]
-    public void Form_rejects_car_capacity_below_two()
+    public void Form_rejects_car_capacity_below_one()
     {
         Assert.Throws<DomainException>(() =>
-            Carpool.Form(CarpoolId.New(), Driver, carCapacity: 1, ParkingPreference.None, new[] { Passenger1 }));
+            Carpool.Form(CarpoolId.New(), Driver, carCapacity: 0, ParkingPreference.None));
     }
 
     [Fact]
@@ -79,17 +82,16 @@ public sealed class CarpoolTests
     }
 
     [Fact]
-    public void RemoveMember_dropping_below_minimum_auto_disbands()
+    public void RemoveMember_leaving_just_the_driver_keeps_carpool_active()
     {
         var carpool = Carpool.Form(CarpoolId.New(), Driver, 3, ParkingPreference.None, new[] { Passenger1 });
         carpool.ClearUncommittedEvents();
 
         carpool.RemoveMember(Passenger1);
 
-        Assert.False(carpool.IsActive);
-        Assert.Equal(2, carpool.UncommittedEvents.Count);
-        Assert.IsType<AttendeeLeftCarpool>(carpool.UncommittedEvents[0]);
-        Assert.IsType<CarpoolDisbanded>(carpool.UncommittedEvents[1]);
+        Assert.True(carpool.IsActive);
+        Assert.Equal(Driver, Assert.Single(carpool.Members));
+        Assert.IsType<AttendeeLeftCarpool>(Assert.Single(carpool.UncommittedEvents));
     }
 
     [Fact]
