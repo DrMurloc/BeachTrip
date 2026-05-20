@@ -20,32 +20,29 @@ namespace BeachTrip.Infrastructure;
 
 public static class InfrastructureServiceCollectionExtensions
 {
-    // Worker-side: full host with consumers, saga, Cosmos repos, projections, and ASB.
+    // Worker-side: full host with domain consumers, saga, Cosmos repos, projections, ASB.
     public static IHostApplicationBuilder AddBeachTripInfrastructure(this IHostApplicationBuilder builder)
     {
         builder.AddBeachTripCosmosClient();
         builder.Services.AddBeachTripRepositories();
-        builder.Services.AddBeachTripMessaging(
-            builder.Configuration,
-            hostsConsumers: true,
-            isEmulator: builder.Environment.IsDevelopment());
+        builder.Services.AddWorkerMessaging(builder.Configuration);
         builder.Services.AddHostedService<CatalogSeeder>();
         builder.Services.AddHostedService<ProjectionWorker>();
         return builder;
     }
 
-    // Web-side: publisher + Cosmos client for read-model queries. No consumers run here.
-    public static IHostApplicationBuilder AddBeachTripPublisher(this IHostApplicationBuilder builder)
+    // Web-side: Cosmos client (for read-model queries) + ASB bus. Caller registers any
+    // UI-only consumers via the configureBus callback (e.g. ViewUpdated, SoloDriverBumped).
+    public static IHostApplicationBuilder AddBeachTripPublisher(
+        this IHostApplicationBuilder builder,
+        Action<IBusRegistrationConfigurator>? configureBus = null)
     {
         builder.AddBeachTripCosmosClient();
-        builder.Services.AddBeachTripMessaging(
-            builder.Configuration,
-            hostsConsumers: false,
-            isEmulator: builder.Environment.IsDevelopment());
+        builder.Services.AddWebMessaging(builder.Configuration, configureBus);
         return builder;
     }
 
-    private static void AddBeachTripCosmosClient(this IHostApplicationBuilder builder)
+    public static void AddBeachTripCosmosClient(this IHostApplicationBuilder builder)
     {
         var json = BeachTripJsonOptions.Build();
         builder.Services.AddSingleton(json);
@@ -59,7 +56,6 @@ public static class InfrastructureServiceCollectionExtensions
 
             if (isEmulator)
             {
-                // Cosmos emulator uses a self-signed cert and only speaks Gateway mode.
                 opts.ConnectionMode = Microsoft.Azure.Cosmos.ConnectionMode.Gateway;
                 opts.LimitToEndpoint = true;
                 opts.HttpClientFactory = () => new HttpClient(new HttpClientHandler
@@ -89,32 +85,46 @@ public static class InfrastructureServiceCollectionExtensions
         return new CosmosEventRepository<TAgg, TId>(container, registry, json);
     }
 
-    private static void AddBeachTripMessaging(this IServiceCollection services, IConfiguration configuration, bool hostsConsumers, bool isEmulator)
+    private static void AddWorkerMessaging(this IServiceCollection services, IConfiguration configuration)
     {
-        var asbConnectionString = configuration.GetConnectionString("servicebus")
-            ?? throw new InvalidOperationException("Missing 'servicebus' connection string. Did AppHost wire the resource?");
-        var cosmosConnectionString = configuration.GetConnectionString("cosmos")
-            ?? throw new InvalidOperationException("Missing 'cosmos' connection string. Did AppHost wire the resource?");
+        var asbConnectionString = RequireConnectionString(configuration, "servicebus");
 
         services.AddMassTransit(bus =>
         {
-            if (hostsConsumers)
-            {
-                bus.AddBeachTripConsumers();
-                // Saga uses in-memory storage for now. MT.Azure.Cosmos's emulator support
-                // in 8.5.9 hardcodes the endpoint to https://localhost:8081/ which doesn't
-                // match the dynamically-assigned port the Aspire emulator gives us. The saga
-                // is a single fixed-ID process manager — losing it on Worker restart is
-                // tolerable for a 4-day-lifespan app. Revisit when targeting real Cosmos.
-                bus.AddParkingAllocationSaga().InMemoryRepository();
-            }
+            bus.AddBeachTripConsumers();
+            // Saga uses in-memory storage — MT.Azure.Cosmos@8.5.9's ConfigureEmulator
+            // hardcodes localhost:8081, which doesn't match the Aspire-emulator port.
+            // Single fixed-ID saga, 4-day app: tolerable. Phase 4-or-later concern.
+            bus.AddParkingAllocationSaga().InMemoryRepository();
 
             bus.UsingAzureServiceBus((ctx, cfg) =>
             {
                 cfg.Host(asbConnectionString);
-                if (hostsConsumers)
-                    cfg.ConfigureEndpoints(ctx);
+                cfg.ConfigureEndpoints(ctx);
             });
         });
     }
+
+    private static void AddWebMessaging(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<IBusRegistrationConfigurator>? configureBus)
+    {
+        var asbConnectionString = RequireConnectionString(configuration, "servicebus");
+
+        services.AddMassTransit(bus =>
+        {
+            configureBus?.Invoke(bus);
+
+            bus.UsingAzureServiceBus((ctx, cfg) =>
+            {
+                cfg.Host(asbConnectionString);
+                cfg.ConfigureEndpoints(ctx);
+            });
+        });
+    }
+
+    private static string RequireConnectionString(IConfiguration configuration, string name) =>
+        configuration.GetConnectionString(name)
+            ?? throw new InvalidOperationException($"Missing '{name}' connection string. Did AppHost wire the resource?");
 }

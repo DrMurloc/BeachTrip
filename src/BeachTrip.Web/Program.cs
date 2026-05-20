@@ -1,11 +1,24 @@
 using BeachTrip.Infrastructure;
 using BeachTrip.Web.Components;
+using BeachTrip.Web.Live;
+using BeachTrip.Web.Services;
+using MassTransit;
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.AddBeachTripPublisher();
+builder.AddBeachTripPublisher(bus =>
+{
+    bus.AddConsumer<ViewUpdatedConsumer>();
+    bus.AddConsumer<SoloDriverBumpedConsumer>();
+});
+
+builder.Services.AddSingleton<LiveUpdates>();
+builder.Services.AddSingleton<IViewStore, CosmosViewStore>();
+builder.Services.AddScoped<IdentityService>();
+builder.Services.AddScoped<ProtectedSessionStorage>();
 
 builder.Services.AddMudServices();
 

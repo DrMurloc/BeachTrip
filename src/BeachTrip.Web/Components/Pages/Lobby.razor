@@ -1,0 +1,357 @@
+@page "/lobby"
+@using BeachTrip.Application.Attendees
+@using BeachTrip.Application.Carpools
+@using BeachTrip.Application.Parking
+@using BeachTrip.Application.Rooms
+@using BeachTrip.Domain
+@using BeachTrip.Domain.Attendees
+@using BeachTrip.Infrastructure.Projections
+@using BeachTrip.Web.Live
+@using BeachTrip.Web.Services
+@using MassTransit
+@implements IDisposable
+@inject IdentityService Identity
+@inject IViewStore ViewStore
+@inject IBus Bus
+@inject LiveUpdates Live
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<PageTitle>BeachTrip</PageTitle>
+
+@if (_identity is null)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else
+{
+    @* ── Status ─────────────────────────────────────── *@
+    <MudPaper Class="pa-4 mb-4" Elevation="1">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+            <MudText Typo="Typo.h5">Hi, @_identity.DisplayName.</MudText>
+            <MudSpacer />
+            @if (_me?.CarCapacity is not null)
+            {
+                <MudChip T="string"
+                         Variant="Variant.Outlined"
+                         Color="Color.Primary"
+                         Icon="@Icons.Material.Filled.DirectionsCar">
+                    @_me.CarCapacity-seat • @_me.CarPreference
+                </MudChip>
+            }
+            <MudButton Variant="Variant.Outlined" Color="Color.Secondary" OnClick="SignOut">Sign out</MudButton>
+        </MudStack>
+
+        @if (_me?.CarCapacity is null)
+        {
+            <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2" Class="mt-3">
+                <MudNumericField @bind-Value="_carCapacity" Label="Car capacity" Min="1" Max="9" Variant="Variant.Outlined" Style="max-width: 140px;" />
+                <MudSelect @bind-Value="_carPreference" Label="Parking" Variant="Variant.Outlined" Style="max-width: 160px;">
+                    @foreach (var p in Enum.GetValues<ParkingPreference>())
+                    {
+                        <MudSelectItem Value="@p">@p</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="DeclareCar">Declare car</MudButton>
+            </MudStack>
+        }
+        else
+        {
+            <MudStack Row="true" AlignItems="AlignItems.End" Spacing="2" Class="mt-3">
+                <MudSelect Value="@_me.CarPreference" ValueChanged="@((string p) => UpdatePreference(p))" Label="Parking preference" Variant="Variant.Outlined" Style="max-width: 200px;" T="string">
+                    @foreach (var p in Enum.GetValues<ParkingPreference>())
+                    {
+                        <MudSelectItem Value="@p.ToString()">@p</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DropCar">Drop car</MudButton>
+            </MudStack>
+        }
+    </MudPaper>
+
+    <MudGrid>
+        @* ── Rooms ─────────────────────────────────────── *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" GutterBottom="true">Rooms</MudText>
+                @foreach (var room in _rooms.OrderBy(r => r.Name))
+                {
+                    var iAmHere = room.Occupants.Contains(_identity.AttendeeId.ToString());
+                    <MudCard Class="mb-2" Elevation="0" Outlined="true">
+                        <MudCardContent Class="pa-2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText Typo="Typo.body1">
+                                    <b>@room.Name</b>
+                                    @if (room.IsLocked) { <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" /> }
+                                </MudText>
+                                <MudSpacer />
+                                <MudText Typo="Typo.caption">@room.Occupants.Count / @room.Capacity</MudText>
+                                @if (room.IsLocked)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Default">locked</MudText>
+                                }
+                                else if (iAmHere)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => LeaveRoom(room.Id))">Leave</MudButton>
+                                }
+                                else if (room.FreeSeats > 0)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => JoinRoom(room.Id))">Join</MudButton>
+                                }
+                            </MudStack>
+                            @if (room.Occupants.Count > 0)
+                            {
+                                <MudText Typo="Typo.caption" Class="mt-1">
+                                    @string.Join(", ", room.Occupants.Select(NameOf))
+                                </MudText>
+                            }
+                        </MudCardContent>
+                    </MudCard>
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* ── Carpools ───────────────────────────────────── *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" GutterBottom="true">Carpools</MudText>
+
+                @if (_myCarpool is null && _me?.CarCapacity is not null)
+                {
+                    <MudStack Spacing="2" Class="mb-3">
+                        <MudSelect T="string"
+                                   @bind-SelectedValues="_passengerIds"
+                                   SelectAll="false"
+                                   MultiSelection="true"
+                                   Label="Passengers"
+                                   Variant="Variant.Outlined"
+                                   AnchorOrigin="Origin.BottomCenter">
+                            @foreach (var a in _attendees.Where(a => a.Id != _identity.AttendeeId.ToString()))
+                            {
+                                <MudSelectItem T="string" Value="@a.Id">@a.DisplayName</MudSelectItem>
+                            }
+                        </MudSelect>
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="FormCarpool" Disabled="@(!_passengerIds.Any())">
+                            Form carpool (@(_passengerIds.Count() + 1)/@_me.CarCapacity)
+                        </MudButton>
+                    </MudStack>
+                }
+
+                @foreach (var c in _carpools.Where(c => c.IsActive).OrderBy(c => NameOf(c.DriverId)))
+                {
+                    var iAmIn = c.Members.Contains(_identity.AttendeeId.ToString());
+                    var iAmDriver = c.DriverId == _identity.AttendeeId.ToString();
+                    var canJoin = !iAmIn && _myCarpool is null && c.Members.Count < c.CarCapacity;
+                    <MudCard Class="mb-2" Elevation="0" Outlined="true">
+                        <MudCardContent Class="pa-2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText Typo="Typo.body1"><b>@NameOf(c.DriverId)'s car</b></MudText>
+                                <MudSpacer />
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@c.Preference</MudChip>
+                                <MudText Typo="Typo.caption">@c.Members.Count / @c.CarCapacity</MudText>
+                                @if (iAmDriver)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => Disband(c.Id))">Disband</MudButton>
+                                }
+                                else if (iAmIn)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" OnClick="@(() => LeaveCarpool(c.Id))">Leave</MudButton>
+                                }
+                                else if (canJoin)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => JoinCarpool(c.Id))">Join</MudButton>
+                                }
+                            </MudStack>
+                            <MudText Typo="Typo.caption" Class="mt-1">
+                                @string.Join(", ", c.Members.Select(NameOf))
+                            </MudText>
+                        </MudCardContent>
+                    </MudCard>
+                }
+            </MudPaper>
+        </MudItem>
+
+        @* ── Parking ───────────────────────────────────── *@
+        <MudItem xs="12" md="4">
+            <MudPaper Class="pa-4" Elevation="1">
+                <MudText Typo="Typo.h6" GutterBottom="true">Parking</MudText>
+                @foreach (var spot in _spots.OrderBy(s => s.Name))
+                {
+                    var claim = spot.Claim;
+                    <MudCard Class="mb-2" Elevation="0" Outlined="true">
+                        <MudCardContent Class="pa-2">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                                <MudText Typo="Typo.body1">
+                                    <b>@spot.Name</b>
+                                    @if (spot.IsLocked) { <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" /> }
+                                </MudText>
+                                <MudSpacer />
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@spot.Type</MudChip>
+                            </MudStack>
+                            @if (claim is null)
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Default" Class="mt-1">unassigned</MudText>
+                            }
+                            else if (claim.Kind == "Carpool")
+                            {
+                                var carpool = _carpools.FirstOrDefault(c => c.Id == claim.ClaimantId);
+                                <MudText Typo="Typo.caption" Class="mt-1">
+                                    🚗 carpool — @(carpool is null ? "?" : NameOf(carpool.DriverId) + "'s car")
+                                </MudText>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Class="mt-1">solo — @NameOf(claim.ClaimantId)</MudText>
+                            }
+                        </MudCardContent>
+                    </MudCard>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private UserIdentity? _identity;
+    private AttendeeView? _me;
+    private IReadOnlyList<AttendeeView> _attendees = Array.Empty<AttendeeView>();
+    private IReadOnlyList<CarpoolView> _carpools = Array.Empty<CarpoolView>();
+    private IReadOnlyList<RoomView> _rooms = Array.Empty<RoomView>();
+    private IReadOnlyList<ParkingSpotView> _spots = Array.Empty<ParkingSpotView>();
+    private CarpoolView? _myCarpool;
+
+    private int _carCapacity = 4;
+    private ParkingPreference _carPreference = ParkingPreference.Driveway;
+    private IReadOnlyCollection<string> _passengerIds = new HashSet<string>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _identity = await Identity.GetCurrent();
+        if (_identity is null)
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+        await Refresh();
+
+        Live.ViewChanged += OnViewChanged;
+        Live.SoloBumped += OnSoloBumped;
+    }
+
+    public void Dispose()
+    {
+        Live.ViewChanged -= OnViewChanged;
+        Live.SoloBumped -= OnSoloBumped;
+    }
+
+    private async Task Refresh()
+    {
+        if (_identity is null) return;
+
+        var attendees = await ViewStore.ListAttendees();
+        var carpools  = await ViewStore.ListCarpools();
+        var rooms     = await ViewStore.ListRooms();
+        var spots     = await ViewStore.ListParkingSpots();
+
+        _attendees = attendees;
+        _carpools = carpools;
+        _rooms = rooms;
+        _spots = spots;
+
+        var myId = _identity.AttendeeId.ToString();
+        _me = attendees.FirstOrDefault(a => a.Id == myId);
+        _myCarpool = carpools.FirstOrDefault(c => c.IsActive && c.Members.Contains(myId));
+    }
+
+    private string NameOf(string attendeeId) =>
+        _attendees.FirstOrDefault(a => a.Id == attendeeId)?.DisplayName ?? attendeeId;
+
+    private async void OnViewChanged(ViewUpdated msg)
+    {
+        await InvokeAsync(async () =>
+        {
+            await Refresh();
+            StateHasChanged();
+        });
+    }
+
+    private async void OnSoloBumped(SoloDriverBumped msg)
+    {
+        if (_identity is null) return;
+        if (msg.AttendeeId.Value != _identity.AttendeeId) return;
+        await InvokeAsync(() =>
+        {
+            Snackbar.Add("A carpool just took your parking spot.", Severity.Warning);
+            StateHasChanged();
+        });
+    }
+
+    // ── Actions ─────────────────────────────────────────
+
+    private async Task DeclareCar()
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new DeclareAttendeeCar(new AttendeeId(_identity.AttendeeId), _carCapacity, _carPreference));
+    }
+
+    private async Task UpdatePreference(string pref)
+    {
+        if (_identity is null) return;
+        var parsed = Enum.Parse<ParkingPreference>(pref);
+        await Bus.Publish(new UpdateAttendeeCarPreference(new AttendeeId(_identity.AttendeeId), parsed));
+    }
+
+    private async Task DropCar()
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new DropAttendeeCar(new AttendeeId(_identity.AttendeeId)));
+    }
+
+    private async Task SignOut()
+    {
+        await Identity.SignOut();
+        Nav.NavigateTo("/");
+    }
+
+    private async Task JoinRoom(string roomId)
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new AssignAttendeeToRoom(new RoomId(Guid.Parse(roomId)), new AttendeeId(_identity.AttendeeId)));
+    }
+
+    private async Task LeaveRoom(string roomId)
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new RemoveAttendeeFromRoom(new RoomId(Guid.Parse(roomId)), new AttendeeId(_identity.AttendeeId)));
+    }
+
+    private async Task FormCarpool()
+    {
+        if (_identity is null || _me?.CarCapacity is null) return;
+        var passengers = _passengerIds.Select(p => new AttendeeId(Guid.Parse(p))).ToList();
+        await Bus.Publish(new FormCarpool(
+            CarpoolId.New(),
+            new AttendeeId(_identity.AttendeeId),
+            _me.CarCapacity.Value,
+            Enum.Parse<ParkingPreference>(_me.CarPreference ?? "None"),
+            passengers));
+        _passengerIds = new HashSet<string>();
+    }
+
+    private async Task JoinCarpool(string carpoolId)
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new JoinCarpool(new CarpoolId(Guid.Parse(carpoolId)), new AttendeeId(_identity.AttendeeId)));
+    }
+
+    private async Task LeaveCarpool(string carpoolId)
+    {
+        if (_identity is null) return;
+        await Bus.Publish(new LeaveCarpool(new CarpoolId(Guid.Parse(carpoolId)), new AttendeeId(_identity.AttendeeId)));
+    }
+
+    private async Task Disband(string carpoolId)
+    {
+        await Bus.Publish(new DisbandCarpool(new CarpoolId(Guid.Parse(carpoolId)), "Disbanded by driver."));
+    }
+}

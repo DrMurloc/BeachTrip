@@ -5,6 +5,7 @@ using BeachTrip.Domain.Carpools;
 using BeachTrip.Domain.Parking;
 using BeachTrip.Domain.Rooms;
 using BeachTrip.Infrastructure.EventStore;
+using MassTransit;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -63,6 +64,7 @@ public sealed class ProjectionWorker : BackgroundService
     {
         using var scope = _services.CreateScope();
         var sp = scope.ServiceProvider;
+        var publisher = sp.GetRequiredService<IPublishEndpoint>();
 
         foreach (var doc in changes)
         {
@@ -87,8 +89,10 @@ public sealed class ProjectionWorker : BackgroundService
                         break;
                     default:
                         _log.LogWarning("No projector for aggregate {AggregateType}", doc.AggregateType);
-                        break;
+                        continue;
                 }
+
+                await publisher.Publish(new ViewUpdated(doc.AggregateType, doc.AggregateId), ct);
             }
             catch (Exception ex)
             {

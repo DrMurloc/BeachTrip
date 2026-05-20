@@ -1,10 +1,86 @@
 @page "/"
+@using BeachTrip.Application.Attendees
+@using BeachTrip.Domain
+@using BeachTrip.Web.Services
+@using MassTransit
+@inject IdentityService Identity
+@inject IBus Bus
+@inject NavigationManager Nav
 
-<PageTitle>BeachTrip</PageTitle>
+<PageTitle>BeachTrip — pick a handle</PageTitle>
 
-<MudPaper Class="pa-6" Elevation="2">
+<MudPaper Class="pa-6 mt-8 mx-auto" Elevation="2" Style="max-width: 480px;">
     <MudText Typo="Typo.h4" GutterBottom="true">BeachTrip</MudText>
-    <MudText Typo="Typo.body1">
-        Rooms, carpools, and parking for the Beach Episode. Pages land in Phase 4.
+    <MudText Typo="Typo.body1" Class="mb-4">
+        Pick a handle so others know who you are. No password, no auth — just a name.
     </MudText>
+
+    @if (!_ready)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+    else
+    {
+        <EditForm Model="this" OnValidSubmit="SignIn">
+            <MudTextField @bind-Value="_handle"
+                          Label="Handle"
+                          Required="true"
+                          Immediate="true"
+                          MaxLength="40"
+                          Disabled="@_busy" />
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@_error</MudAlert>
+            }
+
+            <MudButton ButtonType="ButtonType.Submit"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Class="mt-4"
+                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_handle))">
+                @(_busy ? "Joining..." : "Join the trip")
+            </MudButton>
+        </EditForm>
+    }
 </MudPaper>
+
+@code {
+    private string _handle = "";
+    private string? _error;
+    private bool _ready;
+    private bool _busy;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        var existing = await Identity.GetCurrent();
+        if (existing is not null)
+        {
+            Nav.NavigateTo("/lobby");
+            return;
+        }
+
+        _ready = true;
+        StateHasChanged();
+    }
+
+    private async Task SignIn()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var attendeeId = new AttendeeId(Guid.NewGuid());
+            await Bus.Publish(new RegisterAttendee(attendeeId, _handle.Trim()));
+            await Identity.SignIn(_handle.Trim(), attendeeId.Value);
+            Nav.NavigateTo("/lobby");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+            _busy = false;
+        }
+    }
+}
