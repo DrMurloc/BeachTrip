@@ -22,8 +22,8 @@ public sealed class Carpool : AggregateRoot<CarpoolId>
         ParkingPreference preference,
         IEnumerable<AttendeeId>? initialPassengers = null)
     {
-        if (carCapacity < 2)
-            throw new DomainException("Carpool requires a car with capacity >= 2.");
+        if (carCapacity < 1)
+            throw new DomainException("Carpool requires a car with capacity >= 1.");
 
         var members = new List<AttendeeId> { driverId };
         if (initialPassengers is not null)
@@ -33,8 +33,6 @@ public sealed class Carpool : AggregateRoot<CarpoolId>
                     members.Add(passenger);
         }
 
-        if (members.Count < 2)
-            throw new DomainException("Carpool requires at least 2 humans.");
         if (members.Count > carCapacity)
             throw new DomainException($"Carpool has {members.Count} members but car capacity is {carCapacity}.");
 
@@ -59,8 +57,6 @@ public sealed class Carpool : AggregateRoot<CarpoolId>
         if (attendee == DriverId)
             throw new DomainException("Cannot remove the driver. Disband the carpool instead.");
         Raise(new AttendeeLeftCarpool(Id, attendee));
-        if (_members.Count < 2)
-            Raise(new CarpoolDisbanded(Id, "Fell below the 2-human minimum."));
     }
 
     public void ChangePreference(ParkingPreference preference)

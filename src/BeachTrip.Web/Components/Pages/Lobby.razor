@@ -183,7 +183,7 @@
                                 <MudSelectItem T="string" Value="@a.Id">@a.DisplayName</MudSelectItem>
                             }
                         </MudSelect>
-                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="FormCarpool" Disabled="@(!_passengerIds.Any())">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="FormCarpool">
                             Form (@(_passengerIds.Count() + 1)/@_me.CarCapacity)
                         </MudButton>
                     }
@@ -565,7 +565,6 @@
         if (current is not null)
         {
             current.Members.Remove(myId);
-            if (current.Members.Count < 2) current.IsActive = false;
             await Bus.Publish(new LeaveCarpool(new CarpoolId(Guid.Parse(current.Id)), new AttendeeId(_identity.AttendeeId)));
         }
 
@@ -587,7 +586,6 @@
         if (carpool is not null)
         {
             carpool.Members.Remove(myId);
-            if (carpool.Members.Count < 2) carpool.IsActive = false;
             _myCarpool = null;
             StateHasChanged();
         }

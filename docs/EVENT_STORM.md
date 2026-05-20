@@ -57,7 +57,7 @@ The domain laid out in event-storming notation. If you've never seen this style:
 
 ```
 🟦  FormCarpool  (carpoolId, driverId, carCapacity, preference, passengers)
-      ↓ (Carpool.Form — invariant: 2 ≤ members ≤ carCapacity)
+      ↓ (Carpool.Form — invariant: 1 ≤ members ≤ carCapacity; passengers optional)
 🟧  CarpoolFormed
       ↓ projection
 🟨  CarpoolView (new doc in view-carpools)
@@ -68,10 +68,8 @@ The domain laid out in event-storming notation. If you've never seen this style:
       ↓ UI auto-leaves prior carpool first
 🟦  LeaveCarpool  (priorCarpoolId, attendeeId)    ← issued by lobby before Join
       ↓
-🟧  AttendeeLeftCarpool        ← prior carpool
-      ↓ if members < 2
-🟧  CarpoolDisbanded            ← auto-disband
-      ↓ projection: priorCarpool.IsActive = false
+🟧  AttendeeLeftCarpool        ← prior carpool (no auto-disband; driver-only is valid)
+      ↓ projection
 🟨  CarpoolView (prior)
 
 🟦  JoinCarpool                  ← then the original join
@@ -85,8 +83,7 @@ The domain laid out in event-storming notation. If you've never seen this style:
 🟦  LeaveCarpool
       ↓
 🟧  AttendeeLeftCarpool
-      ↓ if remaining members < 2
-🟧  CarpoolDisbanded
+      (no auto-disband — driver-only carpools are valid)
 ```
 
 ```
