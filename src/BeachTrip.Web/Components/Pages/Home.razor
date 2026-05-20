@@ -1,6 +1,7 @@
 @page "/"
 @using BeachTrip.Application.Attendees
 @using BeachTrip.Domain
+@using BeachTrip.Infrastructure
 @using BeachTrip.Infrastructure.Projections
 @using BeachTrip.Web.Services
 @using MassTransit
@@ -98,8 +99,9 @@
     {
         var matches = _attendees
             .Where(a => string.IsNullOrEmpty(value) || a.DisplayName.Contains(value, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(a => a.DisplayName)
-            .Select(a => a.DisplayName);
+            .Select(a => a.DisplayName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n);
         return Task.FromResult<IEnumerable<string>>(matches);
     }
 
@@ -112,16 +114,22 @@
         _busy = true;
         try
         {
-            // Match-by-name signs in as the existing attendee; everything else registers fresh.
-            var existing = _attendees.FirstOrDefault(a =>
-                string.Equals(a.DisplayName, handle, StringComparison.OrdinalIgnoreCase));
+            // Seeded family names always resolve to their KnownIds GUID — protects against
+            // the race where the seeder hasn't projected yet and a fresh sign-in would
+            // otherwise mint a dupe under a random GUID.
+            var seededId = TrySeededId(handle);
+            var existing = seededId is not null
+                ? _attendees.FirstOrDefault(a => Guid.Parse(a.Id) == seededId.Value)
+                : _attendees.FirstOrDefault(a =>
+                    string.Equals(a.DisplayName, handle, StringComparison.OrdinalIgnoreCase));
+
             if (existing is not null)
             {
                 await Identity.SignIn(existing.DisplayName, Guid.Parse(existing.Id));
             }
             else
             {
-                var attendeeId = new AttendeeId(Guid.NewGuid());
+                var attendeeId = new AttendeeId(seededId ?? Guid.NewGuid());
                 await Bus.Publish(new RegisterAttendee(attendeeId, handle));
                 await Identity.SignIn(handle, attendeeId.Value);
             }
@@ -133,6 +141,14 @@
             _busy = false;
         }
     }
+
+    private static Guid? TrySeededId(string handle) => handle.ToLowerInvariant() switch
+    {
+        "drmurloc" => KnownIds.DrMurloc,
+        "iraiah"   => KnownIds.Iraiah,
+        "murky"    => KnownIds.Murky,
+        _ => null,
+    };
 
     private void ViewAnonymous() => Nav.NavigateTo("/lobby");
 }
