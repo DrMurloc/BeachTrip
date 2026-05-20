@@ -57,13 +57,22 @@ public sealed class CosmosViewStore : IViewStore
 
     private static async Task<IReadOnlyList<T>> ListAll<T>(Container container, CancellationToken ct)
     {
-        var iterator = container.GetItemQueryIterator<T>("SELECT * FROM c");
-        var results = new List<T>();
-        while (iterator.HasMoreResults)
+        try
         {
-            var page = await iterator.ReadNextAsync(ct);
-            results.AddRange(page);
+            var iterator = container.GetItemQueryIterator<T>("SELECT * FROM c");
+            var results = new List<T>();
+            while (iterator.HasMoreResults)
+            {
+                var page = await iterator.ReadNextAsync(ct);
+                results.AddRange(page);
+            }
+            return results;
         }
-        return results;
+        catch (CosmosException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            // View container hasn't been provisioned yet (Web started before Worker seeded).
+            // Tolerate empty; the projection feed will populate as events flow.
+            return Array.Empty<T>();
+        }
     }
 }

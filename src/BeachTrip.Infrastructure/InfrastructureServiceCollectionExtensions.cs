@@ -39,6 +39,9 @@ public static class InfrastructureServiceCollectionExtensions
     {
         builder.AddBeachTripCosmosClient();
         builder.Services.AddWebMessaging(builder.Configuration, configureBus);
+        // Web could start before Worker finishes provisioning — run the same idempotent
+        // CreateIfNotExists dance here so view-store reads don't 404 on cold start.
+        builder.Services.AddHostedService<CosmosWarmupService>();
         return builder;
     }
 
@@ -87,19 +90,19 @@ public static class InfrastructureServiceCollectionExtensions
 
     private static void AddWorkerMessaging(this IServiceCollection services, IConfiguration configuration)
     {
-        var asbConnectionString = RequireConnectionString(configuration, "servicebus");
+        var rabbitConnectionString = RequireConnectionString(configuration, "rabbitmq");
 
         services.AddMassTransit(bus =>
         {
             bus.AddBeachTripConsumers();
-            // Saga uses in-memory storage — MT.Azure.Cosmos@8.5.9's ConfigureEmulator
-            // hardcodes localhost:8081, which doesn't match the Aspire-emulator port.
-            // Single fixed-ID saga, 4-day app: tolerable. Phase 4-or-later concern.
+            // Saga state is in-memory — single fixed-ID process manager in a 4-day app.
+            // Losing it on Worker restart is tolerable; rehydrating from the parking-spot
+            // read models on startup is a Phase 4+ concern.
             bus.AddParkingAllocationSaga().InMemoryRepository();
 
-            bus.UsingAzureServiceBus((ctx, cfg) =>
+            bus.UsingRabbitMq((ctx, cfg) =>
             {
-                cfg.Host(asbConnectionString);
+                cfg.Host(rabbitConnectionString);
                 cfg.ConfigureEndpoints(ctx);
             });
         });
@@ -110,15 +113,15 @@ public static class InfrastructureServiceCollectionExtensions
         IConfiguration configuration,
         Action<IBusRegistrationConfigurator>? configureBus)
     {
-        var asbConnectionString = RequireConnectionString(configuration, "servicebus");
+        var rabbitConnectionString = RequireConnectionString(configuration, "rabbitmq");
 
         services.AddMassTransit(bus =>
         {
             configureBus?.Invoke(bus);
 
-            bus.UsingAzureServiceBus((ctx, cfg) =>
+            bus.UsingRabbitMq((ctx, cfg) =>
             {
-                cfg.Host(asbConnectionString);
+                cfg.Host(rabbitConnectionString);
                 cfg.ConfigureEndpoints(ctx);
             });
         });

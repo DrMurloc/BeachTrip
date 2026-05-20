@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-BeachTrip.Worker-613a5d72-c6b3-41ad-af7c-af6ae362186c</UserSecretsId>
+    <!-- Aspire/azd publish builds a container image via `dotnet publish /t:PublishContainer`.
+         Microsoft.NET.Sdk.Worker doesn't enable container support by default. -->
+    <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
   </PropertyGroup>
 
   <ItemGroup>

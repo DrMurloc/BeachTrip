@@ -16,6 +16,8 @@ public sealed class ParkingAllocationStateMachine : MassTransitStateMachine<Park
     public Event<CarpoolReleasesParking> CarpoolReleasesParking { get; private set; } = null!;
     public Event<SoloDriverWantsParking> SoloDriverWantsParking { get; private set; } = null!;
     public Event<SoloDriverReleasesParking> SoloDriverReleasesParking { get; private set; } = null!;
+    public Event<SpotTakenOutOfPool> SpotTakenOutOfPool { get; private set; } = null!;
+    public Event<SpotReturnedToPool> SpotReturnedToPool { get; private set; } = null!;
 
     public ParkingAllocationStateMachine()
     {
@@ -51,6 +53,18 @@ public sealed class ParkingAllocationStateMachine : MassTransitStateMachine<Park
             x.SelectId(m => m.Message.CorrelationId);
             x.InsertOnInitial = true;
         });
+        Event(() => SpotTakenOutOfPool, x =>
+        {
+            x.CorrelateById(m => m.Message.CorrelationId);
+            x.SelectId(m => m.Message.CorrelationId);
+            x.InsertOnInitial = true;
+        });
+        Event(() => SpotReturnedToPool, x =>
+        {
+            x.CorrelateById(m => m.Message.CorrelationId);
+            x.SelectId(m => m.Message.CorrelationId);
+            x.InsertOnInitial = true;
+        });
 
         Initially(
             When(SeedInventory)
@@ -74,8 +88,20 @@ public sealed class ParkingAllocationStateMachine : MassTransitStateMachine<Park
             When(SoloDriverWantsParking)
                 .ThenAsync(ctx => EnqueueAndReallocate(ctx, SagaClaim.ForSolo(ctx.Message.AttendeeId, ctx.Message.Preference))),
             When(SoloDriverReleasesParking)
-                .ThenAsync(ctx => DequeueAndReallocate(ctx, ClaimKind.Solo, ctx.Message.AttendeeId.Value))
+                .ThenAsync(ctx => DequeueAndReallocate(ctx, ClaimKind.Solo, ctx.Message.AttendeeId.Value)),
+            When(SpotTakenOutOfPool)
+                .ThenAsync(ctx => SetSpotLockAndReallocate(ctx, ctx.Message.SpotId, locked: true)),
+            When(SpotReturnedToPool)
+                .ThenAsync(ctx => SetSpotLockAndReallocate(ctx, ctx.Message.SpotId, locked: false))
         );
+    }
+
+    private static Task SetSpotLockAndReallocate<T>(BehaviorContext<ParkingAllocationState, T> ctx, ParkingSpotId spotId, bool locked) where T : class
+    {
+        var idx = ctx.Saga.Spots.FindIndex(s => s.SpotId == spotId);
+        if (idx < 0) return Task.CompletedTask;
+        ctx.Saga.Spots[idx] = ctx.Saga.Spots[idx] with { IsLocked = locked };
+        return Reallocate(ctx);
     }
 
     private static void Seed(ParkingAllocationState saga, IReadOnlyList<SpotSeed> seeds)

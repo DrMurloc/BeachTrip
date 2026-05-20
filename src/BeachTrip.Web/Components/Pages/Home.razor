@@ -1,18 +1,20 @@
 @page "/"
 @using BeachTrip.Application.Attendees
 @using BeachTrip.Domain
+@using BeachTrip.Infrastructure.Projections
 @using BeachTrip.Web.Services
 @using MassTransit
 @inject IdentityService Identity
+@inject IViewStore ViewStore
 @inject IBus Bus
 @inject NavigationManager Nav
 
-<PageTitle>BeachTrip — pick a handle</PageTitle>
+<PageTitle>BeachTrip — sign in</PageTitle>
 
 <MudPaper Class="pa-6 mt-8 mx-auto" Elevation="2" Style="max-width: 480px;">
     <MudText Typo="Typo.h4" GutterBottom="true">BeachTrip</MudText>
     <MudText Typo="Typo.body1" Class="mb-4">
-        Pick a handle so others know who you are. No password, no auth — just a name.
+        Pick a handle to sign in. Typing a new one registers you. Or just take a look.
     </MudText>
 
     @if (!_ready)
@@ -21,60 +23,108 @@
     }
     else
     {
-        <EditForm Model="this" OnValidSubmit="SignIn">
-            <MudTextField @bind-Value="_handle"
-                          Label="Handle"
-                          Required="true"
-                          Immediate="true"
-                          MaxLength="40"
+        <MudStack Spacing="3">
+            <MudAutocomplete T="string"
+                             Label="Handle"
+                             @bind-Value="_picked"
+                             @bind-Text="_handle"
+                             SearchFunc="Search"
+                             Variant="Variant.Outlined"
+                             CoerceText="false"
+                             CoerceValue="false"
+                             ShowProgressIndicator="false"
+                             MinCharacters="0"
+                             Immediate="true"
+                             DebounceInterval="0"
+                             ResetValueOnEmptyText="false"
+                             Placeholder="Pick or type a new name"
+                             Disabled="@_busy" />
+
+            <MudTextField T="string"
+                          @bind-Value="_password"
+                          Label="Password"
+                          InputType="InputType.Password"
+                          Variant="Variant.Outlined"
+                          HelperText="Does literally nothing. Type anything (or don't)."
                           Disabled="@_busy" />
 
             @if (!string.IsNullOrEmpty(_error))
             {
-                <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@_error</MudAlert>
+                <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert>
             }
 
-            <MudButton ButtonType="ButtonType.Submit"
-                       Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       Class="mt-4"
-                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_handle))">
-                @(_busy ? "Joining..." : "Join the trip")
-            </MudButton>
-        </EditForm>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           OnClick="SignIn"
+                           Disabled="@(_busy || string.IsNullOrWhiteSpace(_handle))"
+                           StartIcon="@Icons.Material.Filled.Login">
+                    @(_busy ? "Signing in..." : "Sign in")
+                </MudButton>
+                <MudSpacer />
+                <MudButton Variant="Variant.Text"
+                           Color="Color.Default"
+                           OnClick="ViewAnonymous"
+                           StartIcon="@Icons.Material.Filled.Visibility">
+                    View anonymously
+                </MudButton>
+            </MudStack>
+        </MudStack>
     }
 </MudPaper>
 
 @code {
     private string _handle = "";
+    private string? _picked;
+    private string _password = "";
+    private IReadOnlyList<AttendeeView> _attendees = Array.Empty<AttendeeView>();
     private string? _error;
     private bool _ready;
     private bool _busy;
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnInitializedAsync()
     {
-        if (!firstRender) return;
-
         var existing = await Identity.GetCurrent();
         if (existing is not null)
         {
             Nav.NavigateTo("/lobby");
             return;
         }
-
+        _attendees = await ViewStore.ListAttendees();
         _ready = true;
-        StateHasChanged();
+    }
+
+    private Task<IEnumerable<string>> Search(string value, CancellationToken ct)
+    {
+        var matches = _attendees
+            .Where(a => string.IsNullOrEmpty(value) || a.DisplayName.Contains(value, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(a => a.DisplayName)
+            .Select(a => a.DisplayName);
+        return Task.FromResult<IEnumerable<string>>(matches);
     }
 
     private async Task SignIn()
     {
+        var handle = _handle?.Trim();
+        if (string.IsNullOrEmpty(handle)) return;
+
         _error = null;
         _busy = true;
         try
         {
-            var attendeeId = new AttendeeId(Guid.NewGuid());
-            await Bus.Publish(new RegisterAttendee(attendeeId, _handle.Trim()));
-            await Identity.SignIn(_handle.Trim(), attendeeId.Value);
+            // Match-by-name signs in as the existing attendee; everything else registers fresh.
+            var existing = _attendees.FirstOrDefault(a =>
+                string.Equals(a.DisplayName, handle, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null)
+            {
+                await Identity.SignIn(existing.DisplayName, Guid.Parse(existing.Id));
+            }
+            else
+            {
+                var attendeeId = new AttendeeId(Guid.NewGuid());
+                await Bus.Publish(new RegisterAttendee(attendeeId, handle));
+                await Identity.SignIn(handle, attendeeId.Value);
+            }
             Nav.NavigateTo("/lobby");
         }
         catch (Exception ex)
@@ -83,4 +133,6 @@
             _busy = false;
         }
     }
+
+    private void ViewAnonymous() => Nav.NavigateTo("/lobby");
 }
