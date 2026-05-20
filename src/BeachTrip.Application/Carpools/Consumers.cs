@@ -1,5 +1,4 @@
 using BeachTrip.Application.Abstractions;
-using BeachTrip.Application.Parking;
 using BeachTrip.Domain;
 using BeachTrip.Domain.Abstractions;
 using BeachTrip.Domain.Attendees;
@@ -7,6 +6,9 @@ using BeachTrip.Domain.Carpools;
 using MassTransit;
 
 namespace BeachTrip.Application.Carpools;
+
+// Parking allocation is admin-driven now (DrMurloc assigns via the lobby).
+// Consumers mutate Carpool state; they no longer publish saga events.
 
 public sealed class FormCarpoolConsumer : IConsumer<FormCarpool>
 {
@@ -21,16 +23,9 @@ public sealed class FormCarpoolConsumer : IConsumer<FormCarpool>
 
     public async Task Consume(ConsumeContext<FormCarpool> ctx)
     {
-        var driver = await _attendees.Get(ctx.Message.DriverId, ctx.CancellationToken)
+        // Driver must exist; carpool invariants are enforced by the aggregate.
+        _ = await _attendees.Get(ctx.Message.DriverId, ctx.CancellationToken)
             ?? throw new DomainException($"Driver {ctx.Message.DriverId} not found.");
-
-        // When the driver joins a carpool, their solo parking claim (if any) is released.
-        if (driver.HasCar)
-        {
-            await ctx.Publish(new SoloDriverReleasesParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.DriverId), ctx.CancellationToken);
-        }
 
         var carpool = Carpool.Form(
             ctx.Message.CarpoolId,
@@ -39,14 +34,6 @@ public sealed class FormCarpoolConsumer : IConsumer<FormCarpool>
             ctx.Message.Preference,
             ctx.Message.InitialPassengers);
         await _carpools.Save(carpool, ctx.CancellationToken);
-
-        if (ctx.Message.Preference != ParkingPreference.None)
-        {
-            await ctx.Publish(new CarpoolWantsParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.CarpoolId,
-                ctx.Message.Preference), ctx.CancellationToken);
-        }
     }
 }
 
@@ -75,13 +62,6 @@ public sealed class LeaveCarpoolConsumer : IConsumer<LeaveCarpool>
             ?? throw new DomainException($"Carpool {ctx.Message.CarpoolId} not found.");
         carpool.RemoveMember(ctx.Message.AttendeeId);
         await _carpools.Save(carpool, ctx.CancellationToken);
-
-        if (!carpool.IsActive)
-        {
-            await ctx.Publish(new CarpoolReleasesParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.CarpoolId), ctx.CancellationToken);
-        }
     }
 }
 
@@ -96,20 +76,6 @@ public sealed class ChangeCarpoolPreferenceConsumer : IConsumer<ChangeCarpoolPre
             ?? throw new DomainException($"Carpool {ctx.Message.CarpoolId} not found.");
         carpool.ChangePreference(ctx.Message.Preference);
         await _carpools.Save(carpool, ctx.CancellationToken);
-
-        if (ctx.Message.Preference == ParkingPreference.None)
-        {
-            await ctx.Publish(new CarpoolReleasesParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.CarpoolId), ctx.CancellationToken);
-        }
-        else
-        {
-            await ctx.Publish(new CarpoolWantsParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.CarpoolId,
-                ctx.Message.Preference), ctx.CancellationToken);
-        }
     }
 }
 
@@ -124,9 +90,5 @@ public sealed class DisbandCarpoolConsumer : IConsumer<DisbandCarpool>
             ?? throw new DomainException($"Carpool {ctx.Message.CarpoolId} not found.");
         carpool.Disband(ctx.Message.Reason);
         await _carpools.Save(carpool, ctx.CancellationToken);
-
-        await ctx.Publish(new CarpoolReleasesParking(
-            ParkingAllocationStateMachine.SagaId,
-            ctx.Message.CarpoolId), ctx.CancellationToken);
     }
 }

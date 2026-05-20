@@ -96,9 +96,8 @@ public sealed class CatalogSeeder : IHostedService
 
     private async Task SeedParkingSpots(CancellationToken ct)
     {
-        var drMurlocCarpoolClaim = new ParkingClaim.Solo(new AttendeeId(KnownIds.DrMurloc));
-
-        await EnsureSpot(KnownIds.ParkingSpots.Driveway1, "Driveway-1", ParkingSpotType.Driveway, lockedClaim: drMurlocCarpoolClaim, ct);
+        // No pre-seeded locks — DrMurloc reserves spots via the admin assign UI.
+        await EnsureSpot(KnownIds.ParkingSpots.Driveway1, "Driveway-1", ParkingSpotType.Driveway, lockedClaim: null, ct);
         await EnsureSpot(KnownIds.ParkingSpots.Driveway2, "Driveway-2", ParkingSpotType.Driveway, lockedClaim: null, ct);
         await EnsureSpot(KnownIds.ParkingSpots.Driveway3, "Driveway-3", ParkingSpotType.Driveway, lockedClaim: null, ct);
         await EnsureSpot(KnownIds.ParkingSpots.Driveway4, "Driveway-4", ParkingSpotType.Driveway, lockedClaim: null, ct);

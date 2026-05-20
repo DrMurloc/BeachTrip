@@ -88,3 +88,4 @@ ClientBin/
 # Generated source
 *.g.cs
 *.generated.cs
+.azure

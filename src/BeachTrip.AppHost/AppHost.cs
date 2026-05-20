@@ -1,7 +1,7 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-var serviceBus = builder.AddAzureServiceBus("servicebus")
-    .RunAsEmulator();
+var rabbitmq = builder.AddRabbitMQ("rabbitmq")
+    .WithManagementPlugin();
 
 var cosmos = builder.AddAzureCosmosDB("cosmos")
     .RunAsEmulator();
@@ -16,23 +16,19 @@ beachTripDb.AddContainer("view-rooms", "/id");
 beachTripDb.AddContainer("view-parking-spots", "/id");
 beachTripDb.AddContainer("view-parking-allocation", "/id");
 
-// Reference the cosmos *account* so the injected connection string is named "cosmos"
-// (matches builder.AddAzureCosmosClient("cosmos") on the consumer side). The database
-// name is hard-coded in BeachTripCosmosOptions.
-//
 // WaitForStart instead of WaitFor — the Cosmos emulator never publishes a Healthy state
-// to Aspire (no separate cosmos-emulatorhealth resource like ServiceBus has), so a full
-// WaitFor hangs forever. CosmosClient + CatalogSeeder retry on their own.
+// to Aspire, so a full WaitFor hangs forever. CosmosClient + CatalogSeeder retry on their
+// own. RabbitMQ has a proper health check, so WaitFor is fine on it.
 builder.AddProject<Projects.BeachTrip_Worker>("worker")
-    .WithReference(serviceBus)
+    .WithReference(rabbitmq)
     .WithReference(cosmos)
-    .WaitForStart(serviceBus)
+    .WaitFor(rabbitmq)
     .WaitForStart(cosmos);
 
 builder.AddProject<Projects.BeachTrip_Web>("web")
-    .WithReference(serviceBus)
+    .WithReference(rabbitmq)
     .WithReference(cosmos)
-    .WaitForStart(serviceBus)
+    .WaitFor(rabbitmq)
     .WaitForStart(cosmos)
     .WithExternalHttpEndpoints();
 

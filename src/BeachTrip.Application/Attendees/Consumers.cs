@@ -33,6 +33,9 @@ public sealed class RenameAttendeeConsumer : IConsumer<RenameAttendee>
     }
 }
 
+// Parking allocation is admin-driven now (DrMurloc assigns spots via the lobby).
+// Consumers below mutate the Attendee aggregate but no longer publish saga events.
+
 public sealed class DeclareAttendeeCarConsumer : IConsumer<DeclareAttendeeCar>
 {
     private readonly IRepository<Attendee, AttendeeId> _repo;
@@ -44,14 +47,6 @@ public sealed class DeclareAttendeeCarConsumer : IConsumer<DeclareAttendeeCar>
             ?? throw new DomainException($"Attendee {ctx.Message.AttendeeId} not found.");
         attendee.DeclareCar(ctx.Message.Capacity, ctx.Message.Preference);
         await _repo.Save(attendee, ctx.CancellationToken);
-
-        if (ctx.Message.Preference != ParkingPreference.None)
-        {
-            await ctx.Publish(new SoloDriverWantsParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.AttendeeId,
-                ctx.Message.Preference), ctx.CancellationToken);
-        }
     }
 }
 
@@ -66,20 +61,6 @@ public sealed class UpdateAttendeeCarPreferenceConsumer : IConsumer<UpdateAttend
             ?? throw new DomainException($"Attendee {ctx.Message.AttendeeId} not found.");
         attendee.UpdateCarPreference(ctx.Message.Preference);
         await _repo.Save(attendee, ctx.CancellationToken);
-
-        if (ctx.Message.Preference == ParkingPreference.None)
-        {
-            await ctx.Publish(new SoloDriverReleasesParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.AttendeeId), ctx.CancellationToken);
-        }
-        else
-        {
-            await ctx.Publish(new SoloDriverWantsParking(
-                ParkingAllocationStateMachine.SagaId,
-                ctx.Message.AttendeeId,
-                ctx.Message.Preference), ctx.CancellationToken);
-        }
     }
 }
 
@@ -94,9 +75,5 @@ public sealed class DropAttendeeCarConsumer : IConsumer<DropAttendeeCar>
             ?? throw new DomainException($"Attendee {ctx.Message.AttendeeId} not found.");
         attendee.DropCar();
         await _repo.Save(attendee, ctx.CancellationToken);
-
-        await ctx.Publish(new SoloDriverReleasesParking(
-            ParkingAllocationStateMachine.SagaId,
-            ctx.Message.AttendeeId), ctx.CancellationToken);
     }
 }

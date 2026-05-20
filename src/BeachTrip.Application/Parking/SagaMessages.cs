@@ -12,6 +12,8 @@ public sealed record CarpoolWantsParking(Guid CorrelationId, CarpoolId CarpoolId
 public sealed record CarpoolReleasesParking(Guid CorrelationId, CarpoolId CarpoolId);
 public sealed record SoloDriverWantsParking(Guid CorrelationId, AttendeeId AttendeeId, ParkingPreference Preference);
 public sealed record SoloDriverReleasesParking(Guid CorrelationId, AttendeeId AttendeeId);
+public sealed record SpotTakenOutOfPool(Guid CorrelationId, ParkingSpotId SpotId);
+public sealed record SpotReturnedToPool(Guid CorrelationId, ParkingSpotId SpotId);
 
 // Outbound — events the saga publishes after each reallocation.
 public sealed record ParkingSpotAllocated(ParkingSpotId SpotId, ParkingClaim Claim);

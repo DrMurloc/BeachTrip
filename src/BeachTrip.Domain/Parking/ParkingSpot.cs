@@ -26,6 +26,7 @@ public sealed class ParkingSpot : AggregateRoot<ParkingSpotId>
         return spot;
     }
 
+    // Saga-driven assignment. Refuses if the spot is locked (created locked, or admin-overridden).
     public void AssignToCarpool(CarpoolId carpoolId)
     {
         EnsureUnlocked();
@@ -49,6 +50,20 @@ public sealed class ParkingSpot : AggregateRoot<ParkingSpotId>
         Raise(new ParkingSpotReleased(Id));
     }
 
+    // Admin override. Bypasses the lock guard so admins can reassign at will.
+    // Sets IsLocked=true so the saga's allocator skips this spot afterward.
+    public void OverrideTo(ParkingClaim claim)
+    {
+        if (IsLocked && CurrentClaim == claim) return;
+        Raise(new ParkingSpotManuallyAssigned(Id, claim));
+    }
+
+    public void RemoveOverride()
+    {
+        if (!IsLocked) return;
+        Raise(new ParkingSpotOverrideRemoved(Id));
+    }
+
     private void EnsureUnlocked()
     {
         if (IsLocked)
@@ -70,6 +85,14 @@ public sealed class ParkingSpot : AggregateRoot<ParkingSpotId>
                 CurrentClaim = e.Claim;
                 break;
             case ParkingSpotReleased:
+                CurrentClaim = null;
+                break;
+            case ParkingSpotManuallyAssigned e:
+                IsLocked = true;
+                CurrentClaim = e.Claim;
+                break;
+            case ParkingSpotOverrideRemoved:
+                IsLocked = false;
                 CurrentClaim = null;
                 break;
         }

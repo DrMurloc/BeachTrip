@@ -1,4 +1,13 @@
+@using BeachTrip.Infrastructure.Projections
+@using BeachTrip.Web.Live
+@using BeachTrip.Web.Services
+@using Microsoft.AspNetCore.Components.Routing
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject IdentityService Identity
+@inject IViewStore ViewStore
+@inject LiveUpdates Live
+@inject NavigationManager Nav
 
 <MudThemeProvider />
 <MudPopoverProvider />
@@ -8,7 +17,42 @@
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudText Typo="Typo.h6">BeachTrip</MudText>
+        <MudSpacer />
+
+        @if (_identity is not null)
+        {
+            <MudMenu Label="@_identity.DisplayName"
+                     EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                     Variant="Variant.Outlined"
+                     Color="Color.Inherit"
+                     Class="mr-2">
+                @foreach (var a in _attendees.OrderBy(a => a.DisplayName))
+                {
+                    <MudMenuItem OnClick="@(() => SwitchTo(a))">
+                        @a.DisplayName
+                        @if (a.Id == _identity.AttendeeId.ToString())
+                        {
+                            <MudIcon Icon="@Icons.Material.Filled.Check" Size="Size.Small" Class="ml-2" />
+                        }
+                    </MudMenuItem>
+                }
+                <MudDivider />
+                <MudMenuItem OnClick="RegisterAnother" Icon="@Icons.Material.Filled.SwitchAccount">
+                    Switch User
+                </MudMenuItem>
+            </MudMenu>
+        }
+        else if (!IsOnSignInPage)
+        {
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Secondary"
+                       OnClick="@(() => Nav.NavigateTo("/"))"
+                       StartIcon="@Icons.Material.Filled.Login">
+                Sign in
+            </MudButton>
+        }
     </MudAppBar>
+
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Large" Class="mt-4">
             @Body
@@ -21,3 +65,62 @@
     <a href="." class="reload">Reload</a>
     <span class="dismiss">🗙</span>
 </div>
+
+@code {
+    private UserIdentity? _identity;
+    private IReadOnlyList<AttendeeView> _attendees = Array.Empty<AttendeeView>();
+
+    private bool IsOnSignInPage =>
+        string.IsNullOrEmpty(Nav.ToBaseRelativePath(Nav.Uri).TrimEnd('/'));
+
+    protected override async Task OnInitializedAsync()
+    {
+        _identity = await Identity.GetCurrent();
+        _attendees = await ViewStore.ListAttendees();
+        Live.ViewChanged += OnViewChanged;
+        // Re-check identity on every navigation — the layout instance persists across
+        // route changes, so without this it'd keep stale state after a sign-in/out.
+        Nav.LocationChanged += OnLocationChanged;
+    }
+
+    public void Dispose()
+    {
+        Live.ViewChanged -= OnViewChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        await InvokeAsync(async () =>
+        {
+            _identity = await Identity.GetCurrent();
+            _attendees = await ViewStore.ListAttendees();
+            StateHasChanged();
+        });
+    }
+
+    private async void OnViewChanged(ViewUpdated msg)
+    {
+        if (msg.AggregateType != "Attendee") return;
+        await InvokeAsync(async () =>
+        {
+            _attendees = await ViewStore.ListAttendees();
+            StateHasChanged();
+        });
+    }
+
+    private async Task SwitchTo(AttendeeView attendee)
+    {
+        if (_identity is not null && attendee.Id == _identity.AttendeeId.ToString()) return;
+        await Identity.SignIn(attendee.DisplayName, Guid.Parse(attendee.Id));
+        Nav.NavigateTo(Nav.Uri, forceLoad: true);
+    }
+
+    private async Task RegisterAnother()
+    {
+        // Also functions as "sign out" — drops identity and sends you back to home
+        // where you can re-sign-in as someone else, register fresh, or browse anonymously.
+        await Identity.SignOut();
+        Nav.NavigateTo("/");
+    }
+}
